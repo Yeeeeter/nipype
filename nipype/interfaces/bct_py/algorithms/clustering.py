@@ -26,7 +26,7 @@ from ...base import (
 )
 
 
-class AgreementInputSpec(TraitedSpec):
+class AgreementInputSpec(BaseInterfaceInputSpec):
     degeneration_file = File(exists=True,
                        mandatory=True,
                        desc="Set of M different partitions of nodes")
@@ -51,7 +51,7 @@ class AgreementOutputSpec(TraitedSpec):
         desc="output agreement matrix file"
     )
 
-class Agreement(NipyBaseInterface):
+class Agreement(BaseInterface):
     input_spec = AgreementInputSpec
     output_spec = AgreementOutputSpec
 
@@ -83,145 +83,18 @@ class Agreement(NipyBaseInterface):
         outputs["agreement_mat_file"] = os.path.abspath("agreement_mat")
 
 
-# TODO: Continue from here
-
 @due.dcite(BibTeX(WATTS1998), description="Unweighted directed clustering coefficient")
 @due.dcite(BibTeX(ONNELA2005), description="Unweighted directed clustering coefficient")
 @due.dcite(BibTeX(FAGIOLO2007), description="Unweighted directed clustering coefficient")
-def clustering_coef_bd(A):
-    '''
-    The clustering coefficient is the fraction of triangles around a node
-    (equiv. the fraction of nodes neighbors that are neighbors of each other).
-
-    Parameters
-    ----------
-    A : NxN np.ndarray
-        binary directed connection matrix
-
-    Returns
-    -------
-    C : Nx1 np.ndarray
-        clustering coefficient vector
-
-    Notes
-    -----
-    Methodological note: In directed graphs, 3 nodes generate up to 8
-    triangles (2*2*2 edges). The number of existing triangles is the main
-    diagonal of S^3/2. The number of all (in or out) neighbour pairs is
-    K(K-1)/2. Each neighbour pair may generate two triangles. "False pairs"
-    are i<->j edge pairs (these do not generate triangles). The number of
-    false pairs is the main diagonal of A^2.
-    Thus the maximum possible number of triangles =
-           = (2 edges)*([ALL PAIRS] - [FALSE PAIRS])
-           = 2 * (K(K-1)/2 - diag(A^2))
-           = K(K-1) - 2(diag(A^2))
-    '''
-    S = A + A.T  # symmetrized input graph
-    K = np.sum(S, axis=1)  # total degree (in+out)
-    cyc3 = np.diag(np.dot(S, np.dot(S, S))) / 2  # number of 3-cycles
-    K[np.where(cyc3 == 0)] = np.inf  # if no 3-cycles exist, make C=0
-    # number of all possible 3 cycles
-    CYC3 = K * (K - 1) - 2 * np.diag(np.dot(A, A))
-    C = cyc3 / CYC3
-    return C
-
-
 @due.dcite(BibTeX(WATTS1998), description="Unweighted undirected clustering coefficient")
 @due.dcite(BibTeX(ONNELA2005), description="Unweighted undirected clustering coefficient")
 @due.dcite(BibTeX(FAGIOLO2007), description="Unweighted undirected clustering coefficient")
-def clustering_coef_bu(G):
-    '''
-    The clustering coefficient is the fraction of triangles around a node
-    (equiv. the fraction of nodes neighbors that are neighbors of each other).
-
-    Parameters
-    ----------
-    A : NxN np.ndarray
-        binary undirected connection matrix
-
-    Returns
-    -------
-    C : Nx1 np.ndarray
-        clustering coefficient vector
-    '''
-    n = len(G)
-    C = np.zeros((n,))
-
-    for u in range(n):
-        V, = np.where(G[u, :])
-        k = len(V)
-        if k >= 2:  # degree must be at least 2
-            S = G[np.ix_(V, V)]
-            C[u] = np.sum(S) / (k * k - k)
-
-    return C
-
-
 @due.dcite(BibTeX(WATTS1998), description="Weighted directed clustering coefficient")
 @due.dcite(BibTeX(ONNELA2005), description="Weighted directed clustering coefficient")
 @due.dcite(BibTeX(FAGIOLO2007), description="Weighted directed clustering coefficient")
-def clustering_coef_wd(W):
-    '''
-    The weighted clustering coefficient is the average "intensity" of
-    triangles around a node.
-
-    Parameters
-    ----------
-    W : NxN np.ndarray
-        weighted directed connection matrix
-
-    Returns
-    -------
-    C : Nx1 np.ndarray
-        clustering coefficient vector
-
-    Notes
-    -----
-    Methodological note (also see clustering_coef_bd)
-    The weighted modification is as follows:
-    - The numerator: adjacency matrix is replaced with weights matrix ^ 1/3
-    - The denominator: no changes from the binary version
-
-    The above reduces to symmetric and/or binary versions of the clustering
-    coefficient for respective graphs.
-    '''
-    A = np.logical_not(W == 0).astype(float)  # adjacency matrix
-    S = cuberoot(W) + cuberoot(W.T)  # symmetrized weights matrix ^1/3
-    K = np.sum(A + A.T, axis=1)  # total degree (in+out)
-    cyc3 = np.diag(np.dot(S, np.dot(S, S))) / 2  # number of 3-cycles
-    K[np.where(cyc3 == 0)] = np.inf  # if no 3-cycles exist, make C=0
-    # number of all possible 3 cycles
-    CYC3 = K * (K - 1) - 2 * np.diag(np.dot(A, A))
-    C = cyc3 / CYC3  # clustering coefficient
-    return C
-
-
 @due.dcite(BibTeX(WATTS1998), description="Weighted undirected clustering coefficient")
 @due.dcite(BibTeX(ONNELA2005), description="Weighted undirected clustering coefficient")
 @due.dcite(BibTeX(FAGIOLO2007), description="Weighted undirected clustering coefficient")
-def clustering_coef_wu(W):
-    '''
-    The weighted clustering coefficient is the average "intensity" of
-    triangles around a node.
-
-    Parameters
-    ----------
-    W : NxN np.ndarray
-        weighted undirected connection matrix
-
-    Returns
-    -------
-    C : Nx1 np.ndarray
-        clustering coefficient vector
-    '''
-    K = np.array(np.sum(np.logical_not(W == 0), axis=1), dtype=float)
-    ws = cuberoot(W)
-    cyc3 = np.diag(np.dot(ws, np.dot(ws, ws)))
-    K[np.where(cyc3 == 0)] = np.inf  # if no 3-cycles exist, set C=0
-    C = cyc3 / (K * (K - 1))
-    return C
-
-
 @due.dcite(
     BibTeX(ONNELA2005),
     description="Weighted undirected signed clustering coefficient (Onnela)",
@@ -237,107 +110,110 @@ def clustering_coef_wu(W):
     description="Weighted undirected signed clustering coefficient (Zhang)",
     conditions={(1, "coef_type"): {"zhang"}}
 )
-def clustering_coef_wu_sign(W, coef_type='default'):
-    '''
-    Returns the weighted clustering coefficient generalized or separated
-    for positive and negative weights.
-  
-    Three Algorithms are supported; herefore referred to as default, zhang,
-    and costantini.
 
-    1. Default (Onnela et al.), as in the traditional clustering coefficient
-       computation. Computed separately for positive and negative weights.
-    2. Zhang & Horvath. Similar to Onnela formula except weight information
-       incorporated in denominator. Reduces sensitivity of the measure to
-       weights directly connected to the node of interest. Computed
-       separately for positive and negative weights.
-    3. Costantini & Perugini generalization of Zhang & Horvath formula.
-       Takes both positive and negative weights into account simultaneously.
-       Particularly sensitive to non-redundancy in path information based on
-       sign. Returns only one value.
+class ClusteringCoefficientInputSpec(BaseInterfaceInputSpec):
+    np_mat_file = File(
+        exists=True,
+        desc="Numpy matrix file",
+        mandatory=True
+        )
 
-    Parameters
-    ----------
-    W : NxN np.ndarray
-        weighted undirected connection matrix
-    corr_type : enum
-        Allowed values are 'default', 'zhang', 'costantini'
+    algorithm_type = traits.Enum(
+        'weighted_undirected',
+        'weighted_undirected_signed',
+        'weighted_directed',
+        'binary_undirected',
+        'binary_directed',
+        mandatory=True
+    )
 
-    Returns
-    -------
-    Cpos : Nx1 np.ndarray
-        Clustering coefficient vector for positive weights
-    Cneg : Nx1 np.ndarray
-        Clustering coefficient vector for negative weights, unless
-        coef_type == 'costantini'.
+class ClusteringCoefficientOutputSpec(TraitedSpec):
+    clustering_coefficient = File(
+        exists=True,
+        desc="clustering coefficient file"
+    )
+    clustering_coefficient_positive = File(
+        exists=True,
+        desc="clustering coefficient positive file"
+    )
+    clustering_coefficient_negative = File(
+        exists=True,
+        desc="clustering coefficient negative file"
+    )
 
-    References:
-        Onnela et al. (2005) Phys Rev E 71:065103
-        Zhang & Horvath (2005) Stat Appl Genet Mol Biol 41:1544-6115
-        Costantini & Perugini (2014) PLOS ONE 9:e88669
-    '''
-    n = len(W)
-    np.fill_diagonal(W, 0)
+class ClusteringCoefficient(BaseInterface):
+    input_spec = ClusteringCoefficientInputSpec
+    output_spec = ClusteringCoefficientOutputSpec
 
-    if coef_type == 'default':
-        W_pos = W * (W > 0)
-        K_pos = np.array(np.sum(np.logical_not(W_pos == 0), axis=1),
-                         dtype=float)
-        ws_pos = cuberoot(W_pos)
-        cyc3_pos = np.diag(np.dot(ws_pos, np.dot(ws_pos, ws_pos)))
-        K_pos[np.where(cyc3_pos == 0)] = np.inf
-        C_pos = cyc3_pos / (K_pos * (K_pos - 1))
+    def _run_interface(self, runtime):
+        np_mat_file = self.inputs.np_mat_file
+        np_mat = np.load(np_mat_file)
 
-        W_neg = -W * (W < 0)
-        K_neg = np.array(np.sum(np.logical_not(W_neg == 0), axis=1),
-                         dtype=float)
-        ws_neg = cuberoot(W_neg)
-        cyc3_neg = np.diag(np.dot(ws_neg, np.dot(ws_neg, ws_neg)))
-        K_neg[np.where(cyc3_neg == 0)] = np.inf
-        C_neg = cyc3_neg / (K_neg * (K_neg - 1))
+        algo_type = self.inputs.algo_type
 
-        return C_pos, C_neg
+        if np_mat.ndim != 2:
+            raise ValueError(f"Input matrix file has wrong dimension: {np_mat.ndim}. Actually needs 2")
+        if np_mat.shape[0] != np_mat.shape[1]:
+            raise ValueError(f"Input matrix file matrix is not equal in dimension: {np_mat.shape[0]} and {np_mat.shape[1]}")
 
-    elif coef_type in ('zhang', 'Zhang'):
-        W_pos = W * (W > 0)
-        cyc3_pos = np.zeros((n,))
-        cyc2_pos = np.zeros((n,))
+        match algo_type:
+            case "weighted_undirected":
+                if not np.equal(np_mat, np_mat.T):
+                    raise ValueError("Weighted undirected clustering coefficient algorithm needs a symmetric np.mat")
 
-        W_neg = -W * (W < 0)
-        cyc3_neg = np.zeros((n,))
-        cyc2_neg = np.zeros((n,))
+                clustering_coef = clustering_coef_wu(np_mat)
 
-        for i in range(n):
-            for j in range(n):
-                for q in range(n):
-                    cyc3_pos[i] += W_pos[j, i] * W_pos[i, q] * W_pos[j, q]
-                    cyc3_neg[i] += W_neg[j, i] * W_neg[i, q] * W_neg[j, q]
-                    if j != q:
-                        cyc2_pos[i] += W_pos[j, i] * W_pos[i, q]
-                        cyc2_neg[i] += W_neg[j, i] * W_neg[i, q]
+                np.save(os.path.abspath("clustering_coef_wu"), clustering_coef)
 
-        cyc2_pos[np.where(cyc3_pos == 0)] = np.inf
-        C_pos = cyc3_pos / cyc2_pos
+            case "weighted_undirected_signed":
+                if not np.equal(np_mat, np_mat.T):
+                    raise ValueError ("Weighted undirected signed clustering coefficient algorithm needs a symmetric np.mat")
 
-        cyc2_neg[np.where(cyc3_neg == 0)] = np.inf
-        C_neg = cyc3_neg / cyc2_neg
+                clustering_coef = clustering_coef_wu_sign(np_mat)
+                np.save(os.path.abspath("clustering_coef_wu_sign"), clustering_coef)
 
-        return C_pos, C_neg
+            case "weighted_directed":
 
-    elif coef_type in ('costantini', 'Costantini'):
-        cyc3 = np.zeros((n,))
-        cyc2 = np.zeros((n,))
+                clustering_coef = clustering_coef_wd(np_mat)
+                np.save(os.path.abspath("clustering_coef_wd"), clustering_coef)
 
-        for i in range(n):
-            for j in range(n):
-                for q in range(n):
-                    cyc3[i] += W[j, i] * W[i, q] * W[j, q]
-                    if j != q:
-                        cyc2[i] += np.abs(W[j, i] * W[i, q])
+            case "binary_undirected":
+                if not np.equal(np_mat, np_mat.T):
+                    raise ValueError ("Binary undirected signed clustering coefficient algorithm needs a symmetric np.mat")
 
-        cyc2[np.where(cyc3 == 0)] = np.inf
-        C = cyc3 / cyc2
-        return C
+                #TODO: Find out how to check for binary matrix
+
+                clustering_coef = clustering_coef_bu(np_mat)
+                np.save(os.path.abspath("clustering_coef_bu"), clustering_coef)
+
+            case "binary_directed":
+                # TODO: Find out how to check for binary matrix
+
+                clustering_coef = clustering_coef_bd(np_mat)
+                np.save(os.path.abspath("clustering_coef_bd"), clustering_coef)
+
+            case _:
+                raise ValueError(f"Unknown algorithm type: {algo_type} or None was provided")
+
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        algo_type = self.inputs.algo_type
+
+        match algo_type:
+            case "weighted_undirected":
+                outputs["clustering_coef"] = os.path.abspath("clustering_coef_wu")
+            case "weighted_undirected_signed":
+                outputs["clustering_coef"] = os.path.abspath("clustering_coef_wu_sign")
+            case "weighted_directed":
+                outputs["clustering_coef"] = os.path.abspath("clustering_coef_wd")
+            case "binary_undirected":
+                outputs["clustering_coef"] = os.path.abspath("clustering_coef_bu")
+            case "binary_directed":
+                outputs["clustering_coef"] = os.path.abspath("clustering_coef_bd")
+
+
+#TODO: continue from here
 
 
 @due.dcite(BibTeX(LANCICHINETTI2012), description="Undirected consensus partitioning")
