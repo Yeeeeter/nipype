@@ -9,90 +9,81 @@ from ..citations import (
     RUBINOV2010, HUMPHRIES2008, COSTANTINI2014, ZHANG2005
 )
 
+from bct.algorithms.clustering import *
 
-def agreement(ci, buffsz=1000):
-    '''
-    Takes as input a set of vertex partitions CI of
-    dimensions [vertex x partition]. Each column in CI contains the
-    assignments of each vertex to a class/community/module. This function
-    aggregates the partitions in CI into a square [vertex x vertex]
-    agreement matrix D, whose elements indicate the number of times any two
-    vertices were assigned to the same class.
+from nipype import BaseInterface
+import os
 
-    In the case that the number of nodes and partitions in CI is large
-    (greater than ~1000 nodes or greater than ~1000 partitions), the script
-    can be made faster by computing D in pieces. The optional input BUFFSZ
-    determines the size of each piece. Trial and error has found that
-    BUFFSZ ~ 150 works well.
-
-    Parameters
-    ----------
-    ci : NxM np.ndarray
-        set of M (possibly degenerate) partitions of N nodes
-    buffsz : int | None
-        sets buffer size. If not specified, defaults to 1000
-
-    Returns
-    -------
-    D : NxN np.ndarray
-        agreement matrix
-    '''
-    ci = np.array(ci)
-    n_nodes, n_partitions = ci.shape
-
-    if n_partitions <= buffsz: # Case 1: Use all partitions at once
-        ind = dummyvar(ci)
-        D = np.dot(ind, ind.T)
-    else: # Case 2: Add together results from subsets of partitions
-        a = np.arange(0, n_partitions, buffsz)
-        b = np.arange(buffsz, n_partitions, buffsz)
-        if len(a) != len(b):
-            b = np.append(b, n_partitions)
-        D = np.zeros((n_nodes, n_nodes))
-        for i, j in zip(a, b):
-            y = ci[:, i:j]
-            ind = dummyvar(y)
-            D += np.dot(ind, ind.T)
-
-    np.fill_diagonal(D, 0)
-    return D
+from ..base import NipyBaseInterface
+from ...base import (
+    TraitedSpec,
+    traits,
+    Tuple,
+    File,
+    OutputMultiPath,
+    BaseInterfaceInputSpec,
+    isdefined,
+)
 
 
-def agreement_weighted(ci, wts):
-    '''
-    D = AGREEMENT_WEIGHTED(CI,WTS) is identical to AGREEMENT, with the
-    exception that each partitions contribution is weighted according to
-    the corresponding scalar value stored in the vector WTS. As an example,
-    suppose CI contained partitions obtained using some heuristic for
-    maximizing modularity. A possible choice for WTS might be the Q metric
-    (Newman's modularity score). Such a choice would add more weight to
-    higher modularity partitions.
+class AgreementInputSpec(TraitedSpec):
+    degeneration_file = File(exists=True,
+                       mandatory=True,
+                       desc="Set of M different partitions of nodes")
+    algo_type = traits.Enum(
+        'normal',
+        'weights',
+        usedefault=True,
+        mandatory=True
+    )
+    buffsz = traits.Int(
+        default_value=1000,
+        usedefault=True
+    )
+    relative_weights = File(
+        exists=True,
+        desc="relative weights for weighted agreement algorithm"
+    )
 
-    NOTE: Unlike AGREEMENT, this script does not have the input argument
-    BUFFSZ.
+class AgreementOutputSpec(TraitedSpec):
+    agreement_mat_file = File(
+        exists=True,
+        desc="output agreement matrix file"
+    )
 
-    Parameters
-    ----------
-    ci : MxN np.ndarray
-        set of M (possibly degenerate) partitions of N nodes
-    wts : Mx1 np.ndarray
-        relative weight of each partition
+class Agreement(NipyBaseInterface):
+    input_spec = AgreementInputSpec
+    output_spec = AgreementOutputSpec
 
-    Returns
-    -------
-    D : NxN np.ndarray
-        weighted agreement matrix
-    '''
-    ci = np.array(ci)
-    m, n = ci.shape
-    wts = np.array(wts) / np.sum(wts)
+    def _run_interface(self, runtime):
+        degeneration_file = self.inputs.degeneration_file
+        algo_type = self.inputs.algo_type
 
-    D = np.zeros((n, n))
-    for i in range(m):
-        d = dummyvar(ci[i, :].reshape(1, n))
-        D += np.dot(d, d.T) * wts[i]
-    return D
+        deg_mat = np.load(degeneration_file)
 
+        if algo_type == 'normal':
+            error_vals = [val for val in (None, 0,) if self.inputs.algo_type is val]
+            if error_vals:
+                raise ValueError(f"Agreement Algorithm (type normal) needs an approriate buffsz not {error_vals}")
+            buffsz = self.inputs.buffsz
+
+            agreement_mat = agreement(deg_mat, buffsz)
+
+        if algo_type == 'weights':
+            if self.inputs.weights is None:
+                raise ValueError("Weights are not specified")
+
+            weights = np.load(self.inputs.weights)
+            agreement_mat = agreement_weighted(deg_mat, weights)
+
+        np.save(os.path.abspath("agreement_mat"), agreement_mat)
+
+    def _list_outputs(self):
+        outputs = self.output_spec().get()
+        outputs["agreement_mat_file"] = os.path.abspath("agreement_mat")
+
+
+# TODO: Continue from here
 
 @due.dcite(BibTeX(WATTS1998), description="Unweighted directed clustering coefficient")
 @due.dcite(BibTeX(ONNELA2005), description="Unweighted directed clustering coefficient")

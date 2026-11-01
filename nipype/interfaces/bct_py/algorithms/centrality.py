@@ -102,7 +102,7 @@ class BetweennessCentrality(BaseInterface):
         outputs = self.output_spec().get()
         outputs["betweenness"] = os.path.abspath("betweenness.npy")
         if include_edges:
-            outputs["edge_betweenness"] = np.load(os.path.abspath("edge_bet.npy"))
+            outputs["edge_betweenness"] = os.path.abspath("edge_bet.npy")
 
         return outputs
 
@@ -178,7 +178,7 @@ class EigenvectorCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["highest_eigenvector"] = np.load(os.path.abspath("highest_eigenvector.npy"))
+        outputs["highest_eigenvector"] = os.path.abspath("highest_eigenvector.npy")
 
         return outputs
 
@@ -214,8 +214,8 @@ class ERange(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["erange"] = np.load(os.path.abspath("erange.npy"))
-        outputs["eshort"] = np.load(os.path.abspath("eshort.npy"))
+        outputs["erange"] = os.path.abspath("erange.npy")
+        outputs["eshort"] = os.path.abspath("eshort.npy")
         outputs["fs"] = self._eta
         outputs["frac"] = self._frac
 
@@ -249,7 +249,7 @@ class FlowCoefficientCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["flow_coefficients"] = np.load(os.path.abspath("flow_coefficient.npy"))
+        outputs["flow_coefficients"] = os.path.abspath("flow_coefficient.npy")
         outputs["average_flow_coefficient"] = self._average_flow_coefficient
         outputs["total_flow_coefficient"] = self._total_flow_coefficient
 
@@ -293,12 +293,10 @@ class GatewayCoefficientCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["gateway_coefficient_pos"] = np.load(
-            os.path.abspath("gateway_coefficient_pos.npy")
-        )
-        outputs["gateway_coefficient_neg"] = np.load(
-            os.path.abspath("gateway_coefficient_neg.npy")
-        )
+        outputs["gateway_coefficient_pos"] = os.path.abspath("gateway_coefficient_pos.npy")
+
+        outputs["gateway_coefficient_neg"] = os.path.abspath("gateway_coefficient_neg.npy")
+
         return outputs
 
 
@@ -349,8 +347,8 @@ class KCorenessCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["coreness"] = np.load(os.path.abspath("coreness.npy"))
-        outputs["k_core_size"] = np.load(os.path.abspath("k_core_size.npy"))
+        outputs["coreness"] = os.path.abspath("coreness.npy")
+        outputs["k_core_size"] = os.path.abspath("k_core_size.npy")
         return outputs
 
 
@@ -413,7 +411,7 @@ class ModuleDegreeCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["module_degree"] = np.load(os.path.abspath("module_degree.npy"))
+        outputs["module_degree"] = os.path.abspath("module_degree.npy")
 
         return outputs
 
@@ -460,7 +458,7 @@ class PageRankCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["pagerank_vector"] = np.load(os.path.abspath("pagerank_vector.npy"))
+        outputs["pagerank_vector"] = os.path.abspath("pagerank_vector.npy")
 
 
 @due.dcite(BibTeX(GUIMERA2005), description="Participation coefficient")
@@ -578,10 +576,10 @@ class ParticipationCoefficientCentrality(BaseInterface):
     def _list_outputs(self):
         outputs = self._outputs().get()
         if self.inputs.algorithm == "signed":
-            outputs["participation_coefficient_pos"] = np.load(os.path.abspath("participation_coefficient_pos"))
-            outputs["participation_coefficient_neg"] = np.load(os.path.abspath("participation_coefficient_neg"))
+            outputs["participation_coefficient_pos"] = os.path.abspath("participation_coefficient_pos")
+            outputs["participation_coefficient_neg"] = os.path.abspath("participation_coefficient_neg")
         else:
-            outputs["participation_coefficient"] = np.load(os.path.abspath("participation_coefficient"))
+            outputs["participation_coefficient"] = os.path.abspath("participation_coefficient")
         
         return outputs
 
@@ -614,5 +612,5 @@ class SubgraphCentrality(BaseInterface):
 
     def _list_outputs(self):
         outputs = self._outputs().get()
-        outputs["subgraph_centrality"] = np.load(os.path.abspath("subgraph_centrality"))
+        outputs["subgraph_centrality"] = os.path.abspath("subgraph_centrality")
         return outputs
