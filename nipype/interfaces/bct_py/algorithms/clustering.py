@@ -1,4 +1,8 @@
 from __future__ import division, print_function
+
+import logging
+from unittest import case
+
 import numpy as np
 from .modularity import modularity_louvain_und_sign
 from bct.utils import cuberoot, BCTParamError, dummyvar, binarize, get_rng
@@ -213,170 +217,183 @@ class ClusteringCoefficient(BaseInterface):
                 outputs["clustering_coef"] = os.path.abspath("clustering_coef_bd")
 
 
-#TODO: continue from here
-
-
 @due.dcite(BibTeX(LANCICHINETTI2012), description="Undirected consensus partitioning")
-def consensus_und(D, tau, reps=1000, seed=None):
-    '''
-    This algorithm seeks a consensus partition of the
-    agreement matrix D. The algorithm used here is almost identical to the
-    one introduced in Lancichinetti & Fortunato (2012): The agreement
-    matrix D is thresholded at a level TAU to remove an weak elements. The
-    resulting matrix is then partitions REPS number of times using the
-    Louvain algorithm (in principle, any clustering algorithm that can
-    handle weighted matrixes is a suitable alternative to the Louvain
-    algorithm and can be substituted in its place). This clustering
-    produces a set of partitions from which a new agreement is built. If
-    the partitions have not converged to a single representative partition,
-    the above process repeats itself, starting with the newly built
-    agreement matrix.
+class ConsensusInputSpec(BaseInterfaceInputSpec):
+    agreement_mat_file = File(
+        exists=True,
+        mandatory=True
+    )
+    tau = traits.Float()
+    reps = traits.Int(
+        default_value = 1000
+    )
+    seed = traits.Int(
+    )
 
-    NOTE: In this implementation, the elements of the agreement matrix must
-    be converted into probabilities.
+class ConsensusOutputSpec(TraitedSpec):
+    consensus_part = File(exists=True)
 
-    NOTE: This implementation is slightly different from the original
-    algorithm proposed by Lanchichinetti & Fortunato. In its original
-    version, if the thresholding produces singleton communities, those
-    nodes are reconnected to the network. Here, we leave any singleton
-    communities disconnected.
 
-    Parameters
-    ----------
-    D : NxN np.ndarray
-        agreement matrix with entries between 0 and 1 denoting the probability
-        of finding node i in the same cluster as node j
-    tau : float
-        threshold which controls the resolution of the reclustering
-    reps : int
-        number of times the clustering algorithm is reapplied. default value
-        is 1000.
-    seed : hashable, optional
-        If None (default), use the np.random's global random state to generate random numbers.
-        Otherwise, use a new np.random.RandomState instance seeded with the given value.
+class Consensus(BaseInterface):
+    input_spec = ConsensusInputSpec
+    output_spec = ConsensusOutputSpec
 
-    Returns
-    -------
-    ciu : Nx1 np.ndarray
-        consensus partition
-    '''
-    rng = get_rng(seed)
-    def unique_partitions(cis):
-        # relabels the partitions to recognize different numbers on same
-        # topology
+    def _run_interface(self, runtime):
+        agreement_mat_file = self.inputs.agreement_mat_file
+        tau = self.inputs.tau
+        reps = self.inputs.reps
+        seed = self.inputs.seed
 
-        n, r = np.shape(cis)  # ci represents one vector for each rep
-        ci_tmp = np.zeros(n)
+        agreement_mat = np.load(agreement_mat_file)
 
-        for i in range(r):
-            for j, u in enumerate(sorted(
-                    np.unique(cis[:, i], return_index=True)[1])):
-                ci_tmp[np.where(cis[:, i] == cis[u, i])] = j
-            cis[:, i] = ci_tmp
-            # so far no partitions have been deleted from ci
+        if not (agreement_mat.ndim == 2 or (agreement_mat.shape[0] == agreement_mat.shape[1])):
+            raise ValueError("Agreement matrix must be square")
 
-        # now squash any of the partitions that are completely identical
-        # do not delete them from ci which needs to stay same size, so make
-        # copy
-        ciu = []
-        cis = cis.copy()
-        c = np.arange(r)
-        # count=0
-        while (c != 0).sum() > 0:
-            ciu.append(cis[:, 0])
-            dup = np.where(np.sum(np.abs(cis.T - cis[:, 0]), axis=1) == 0)
-            cis = np.delete(cis, dup, axis=1)
-            c = np.delete(c, dup)
-            # count+=1
-            # print count,c,dup
-            # if count>10:
-            #	class QualitativeError(): pass
-            #	raise QualitativeError()
-        return np.transpose(ciu)
+        if not tau < 0:
+            raise ValueError("tau must be positive")
 
-    n = len(D)
-    flag = True
-    while flag:
-        flag = False
-        dt = D * (D >= tau)
-        np.fill_diagonal(dt, 0)
+        # TODO: check how to better tie in the logger of nipype!!!
+        if tau == 0:
+            logging.warning("No tau given, assuming 0")
 
-        if np.size(np.where(dt == 0)) == 0:
-            ciu = np.arange(1, n + 1)
+        if seed == 0:
+            logging.warning("seed is 0, assuming no seed was given")
+            consensus_part = consensus_und(agreement_mat, tau, reps)
         else:
-            cis = np.zeros((n, reps))
-            for i in np.arange(reps):
-                cis[:, i], _ = modularity_louvain_und_sign(dt, seed=rng)
-            ciu = unique_partitions(cis)
-            nu = np.size(ciu, axis=1)
-            if nu > 1:
-                flag = True
-                D = agreement(cis) / reps
+            consensus_part = consensus_und(agreement_mat, tau, reps, seed)
 
-    return np.squeeze(ciu + 1)
+        np.save(os.path.abspath("consensus_part"), consensus_part)
 
+        return runtime
 
-def get_components(A, no_depend=False):
-    '''
-    Returns the components of an undirected graph specified by the binary and
-    undirected adjacency matrix adj. Components and their constitutent nodes
-    are assigned the same index and stored in the vector, comps. The vector,
-    comp_sizes, contains the number of nodes beloning to each component.
+    def _list_outputs(self):
+        outputs = self._outputs().get()
 
-    Parameters
-    ----------
-    A : NxN np.ndarray
-        binary undirected adjacency matrix
-    no_depend : Any
-        Does nothing, included for backwards compatibility
-
-    Returns
-    -------
-    comps : Nx1 np.ndarray
-        vector of component assignments for each node
-    comp_sizes : Mx1 np.ndarray
-        vector of component sizes
-
-    Notes
-    -----
-    Note: disconnected nodes will appear as components with a component
-    size of 1
-
-    Note: The identity of each component (i.e. its numerical value in the
-    result) is not guaranteed to be identical the value returned in BCT,
-    matlab code, although the component topology is.
-
-    Many thanks to Nick Cullen for providing this implementation
-    '''
-
-    if not np.all(A == A.T):  # ensure matrix is undirected
-        raise BCTParamError('get_components can only be computed for undirected'
-                            ' matrices.  If your matrix is noisy, correct it with np.around')
-    
-    A = binarize(A, copy=True)
-    n = len(A)
-    np.fill_diagonal(A, 1)
-
-    edge_map = [{u,v} for u in range(n) for v in range(n) if A[u,v] == 1]
-    union_sets = []
-    for item in edge_map:
-        temp = []
-        for s in union_sets:
-
-            if not s.isdisjoint(item):
-                item = s.union(item)
-            else:
-                temp.append(s)
-        temp.append(item)
-        union_sets = temp
-
-    comps = np.array([i+1 for v in range(n) for i in 
-        range(len(union_sets)) if v in union_sets[i]])
-    comp_sizes = np.array([len(s) for s in union_sets])
-
-    return comps, comp_sizes
+        outputs["consensus_part"] = os.path.abspath("consensus_part")
 
 
+class GetComponentInputSpec(BaseInterfaceInputSpec):
+    adjacency_mat_file = File(
+        exists=True,
+        mandatory=True
+    )
+
+class GetComponentOutputSpec(TraitedSpec):
+    component_assignments = File(exists=True)
+    component_sizes = File(exists=True)
+
+class GetComponent(BaseInterface):
+    input_spec = GetComponentInputSpec
+    output_spec = GetComponentOutputSpec
+
+    def _run_interface(self, runtime):
+        adjacency_mat_file = self.inputs.adjecency_mat_file
+
+        adjacency_mat = np.load(adjacency_mat_file)
+
+        if not adjacency_mat.ndim == 2 or (adjacency_mat.shape[0] == adjacency_mat.shape[1]):
+            raise ValueError("Adjacency matrix must be square")
+
+        if not np.equal(adjacency_mat, adjacency_mat.T):
+            raise ValueError("GetComponent requires undirected adjacency matrix")
+
+        # TODO research way to check for binary matrix
+
+        comps, comp_sizes = get_components(adjacency_mat)
+
+        np.save(os.path.abspath("component_assignments"), comps)
+        np.save(os.path.abspath("component_sizes"), comp_sizes)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs["component_assignments"] = os.path.abspath("component_assignments")
+        outputs["component_sizes"] = os.path.abspath("component_sizes")
+
+
+@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, unweighted directed")
+@due.dcite(BibTeX(ONNELA2005), description="Transitivity, unweighted directed")
+@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, unweighted directed")
+@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, unweighted directed")
+@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, unweighted undirected")
+@due.dcite(BibTeX(ONNELA2005), description="Transitivity, unweighted undirected")
+@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, unweighted undirected")
+@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, unweighted undirected")
+@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, weighted directed")
+@due.dcite(BibTeX(ONNELA2005), description="Transitivity, weighted directed")
+@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, weighted directed")
+@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, weighted directed")
+@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, weighted undirected")
+@due.dcite(BibTeX(ONNELA2005), description="Transitivity, weighted undirected")
+@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, weighted undirected")
+@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, weighted undirected")
+class TransitivityInputSpec(BaseInterfaceInputSpec):
+    algorithm_type = traits.Enum(
+        "None",
+        "weighted_undirected",
+        "weighted_directed",
+        "binary_undirected",
+        "binary_directed"
+    )
+    np_mat_file = File(
+        exists=True,
+        mandatory=True
+    )
+
+class TransitivityOutputSpec(TraitedSpec):
+    transitivity = traits.Float()
+
+
+class Transitivity(BaseInterface):
+    input_spec = TransitivityInputSpec
+    output_spec = TransitivityOutputSpec
+
+    def _run_interface(self, runtime):
+        np_mat_file = self.inputs.np_mat_file
+        algorithm = self.inputs.algorithm_type
+
+        np_mat = np.load(np_mat_file)
+
+        if not (np_mat.ndim == 2 or (np_mat.shape[0] == np_mat.shape[1])):
+            raise ValueError("Matrix must be square")
+
+        match algorithm:
+            case "None":
+                raise Exception("Transitivity: No algorithm specified!")
+
+            case "weighted_undirected":
+                if not np.equal(np_mat, np_mat.T):
+                    raise ValueError("Transitivity: Matrix must be square")
+                else:
+                    transitivity = transitivity_wu(np_mat)
+
+            case "weighted_directed":
+                transitivity = transitivity_wd(np_mat)
+
+            case "binary_undirected":
+                if not np.equal(np_mat, np_mat.T):
+                    raise ValueError("Transitivity: Matrix must be square")
+                else:
+                    transitivity = transitivity_bu(np_mat)
+
+            case "binary_directed":
+                transitivity = transitivity_bd(np_mat)
+
+            case _:
+                raise Exception("Transitivity: Unknown algorithm parameter provided!")
+
+
+        self.transitivity = transitivity
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs["transitivity"] = self.transitivity
+
+
+# TODO decide if this function should get an interface
 def get_components_old(A, no_depend=False):
     '''
     Returns the components of an undirected graph specified by the binary and
@@ -463,129 +480,6 @@ def number_of_components(A):
     return len(csizes)
 
 
-@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, unweighted directed")
-@due.dcite(BibTeX(ONNELA2005), description="Transitivity, unweighted directed")
-@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, unweighted directed")
-@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, unweighted directed")
-def transitivity_bd(A):
-    '''
-    Transitivity is the ratio of 'triangles to triplets' in the network.
-    (A classical version of the clustering coefficient).
-
-    Parameters
-    ----------
-    A : NxN np.ndarray
-        binary directed connection matrix
-
-    Returns
-    -------
-    T : float
-        transitivity scalar
-
-    Notes
-    -----
-    Methodological note: In directed graphs, 3 nodes generate up to 8
-    triangles (2*2*2 edges). The number of existing triangles is the main
-
-    diagonal of S^3/2. The number of all (in or out) neighbour pairs is
-    K(K-1)/2. Each neighbour pair may generate two triangles. "False pairs"
-    are i<->j edge pairs (these do not generate triangles). The number of
-    false pairs is the main diagonal of A^2. Thus the maximum possible
-    number of triangles = (2 edges)*([ALL PAIRS] - [FALSE PAIRS])
-                        = 2 * (K(K-1)/2 - diag(A^2))
-                        = K(K-1) - 2(diag(A^2))
-    '''
-    S = A + A.T  # symmetrized input graph
-    K = np.sum(S, axis=1)  # total degree (in+out)
-    cyc3 = np.diag(np.dot(S, np.dot(S, S))) / 2  # number of 3-cycles
-    CYC3 = K * (K - 1) - 2 * np.diag(np.dot(A, A))  # number of all possible 3-cycles
-    return np.sum(cyc3) / np.sum(CYC3)
-
-
-@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, unweighted undirected")
-@due.dcite(BibTeX(ONNELA2005), description="Transitivity, unweighted undirected")
-@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, unweighted undirected")
-@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, unweighted undirected")
-def transitivity_bu(A):
-    '''
-    Transitivity is the ratio of 'triangles to triplets' in the network.
-    (A classical version of the clustering coefficient).
-
-    Parameters
-    ----------
-    A : NxN np.ndarray
-        binary undirected connection matrix
-
-    Returns
-    -------
-    T : float
-        transitivity scalar
-    '''
-    tri3 = np.trace(np.dot(A, np.dot(A, A)))
-    tri2 = np.sum(np.dot(A, A)) - np.trace(np.dot(A, A))
-    return tri3 / tri2
-
-
-@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, weighted directed")
-@due.dcite(BibTeX(ONNELA2005), description="Transitivity, weighted directed")
-@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, weighted directed")
-@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, weighted directed")
-def transitivity_wd(W):
-    '''
-    Transitivity is the ratio of 'triangles to triplets' in the network.
-    (A classical version of the clustering coefficient).
-
-    Parameters
-    ----------
-    W : NxN np.ndarray
-        weighted directed connection matrix
-
-    Returns
-    -------
-    T : int
-        transitivity scalar
-
-    Methodological note (also see note for clustering_coef_bd)
-    The weighted modification is as follows:
-    - The numerator: adjacency matrix is replaced with weights matrix ^ 1/3
-    - The denominator: no changes from the binary version
-
-    The above reduces to symmetric and/or binary versions of the clustering
-    coefficient for respective graphs.
-    '''
-    A = np.logical_not(W == 0).astype(float)  # adjacency matrix
-    S = cuberoot(W) + cuberoot(W.T)  # symmetrized weights matrix ^1/3
-    K = np.sum(A + A.T, axis=1)  # total degree (in+out)
-    cyc3 = np.diag(np.dot(S, np.dot(S, S))) / 2  # number of 3-cycles
-    K[np.where(cyc3 == 0)] = np.inf  # if no 3-cycles exist, make T=0
-    # number of all possible 3-cycles
-    CYC3 = K * (K - 1) - 2 * np.diag(np.dot(A, A))
-    return np.sum(cyc3) / np.sum(CYC3)  # transitivity
-
-
-@due.dcite(BibTeX(RUBINOV2010), description="Transitivity, weighted undirected")
-@due.dcite(BibTeX(ONNELA2005), description="Transitivity, weighted undirected")
-@due.dcite(BibTeX(FAGIOLO2007), description="Transitivity, weighted undirected")
-@due.dcite(BibTeX(HUMPHRIES2008), description="Transitivity, weighted undirected")
-def transitivity_wu(W):
-    '''
-    Transitivity is the ratio of 'triangles to triplets' in the network.
-    (A classical version of the clustering coefficient).
-
-    Parameters
-    ----------
-    W : NxN np.ndarray
-        weighted undirected connection matrix
-
-    Returns
-    -------
-    T : int
-        transitivity scalar
-    '''
-    K = np.sum(np.logical_not(W == 0), axis=1)
-    ws = cuberoot(W)
-    cyc3 = np.diag(np.dot(ws, np.dot(ws, ws)))
-    return np.sum(cyc3, axis=0) / np.sum(K * (K - 1), axis=0)
 
 def path_transitivity(W, transform=None):
     '''
